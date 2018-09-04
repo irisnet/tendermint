@@ -86,6 +86,7 @@ func loadState(db dbm.DB, key []byte) (state State) {
 }
 
 // SaveState persists the State, the ValidatorsInfo, and the ConsensusParamsInfo to the database.
+// This flushes the writes (e.g. calls SetSync).
 func SaveState(db dbm.DB, state State) {
 	saveState(db, state, stateKey)
 }
@@ -232,7 +233,7 @@ func saveValidatorsInfo(db dbm.DB, nextHeight, changeHeight int64, valSet *types
 	if changeHeight == nextHeight {
 		valInfo.ValidatorSet = valSet
 	}
-	db.SetSync(calcValidatorsKey(nextHeight), valInfo.Bytes())
+	db.Set(calcValidatorsKey(nextHeight), valInfo.Bytes())
 }
 
 //-----------------------------------------------------------------------------
@@ -303,5 +304,5 @@ func saveConsensusParamsInfo(db dbm.DB, nextHeight, changeHeight int64, params t
 	if changeHeight == nextHeight {
 		paramsInfo.ConsensusParams = params
 	}
-	db.SetSync(calcConsensusParamsKey(nextHeight), paramsInfo.Bytes())
+	db.Set(calcConsensusParamsKey(nextHeight), paramsInfo.Bytes())
 }
