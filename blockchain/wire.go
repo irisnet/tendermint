@@ -10,4 +10,5 @@ var cdc = amino.NewCodec()
 func init() {
 	RegisterBlockchainMessages(cdc)
 	types.RegisterBlockAmino(cdc)
+	types.RegisterEvidences(cdc)
 }
