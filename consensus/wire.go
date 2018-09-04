@@ -11,4 +11,5 @@ func init() {
 	RegisterConsensusMessages(cdc)
 	RegisterWALMessages(cdc)
 	types.RegisterBlockAmino(cdc)
+	types.RegisterEvidences(cdc)
 }

@@ -9,4 +9,5 @@ var cdc = amino.NewCodec()
 
 func init() {
 	types.RegisterBlockAmino(cdc)
+	types.RegisterEvidences(cdc)
 }
