@@ -186,6 +186,18 @@ func (bs *BlockStore) SaveBlock(block *types.Block, blockParts *types.PartSet, s
 	bs.db.SetSync(nil, nil)
 }
 
+func (bs *BlockStore) RetreatLastBlock() {
+	height := bs.height
+
+	bs.db.Delete(calcBlockMetaKey(height))
+	bs.db.Delete(calcBlockCommitKey(height-1))
+	bs.db.Delete(calcSeenCommitKey(height))
+	BlockStoreStateJSON{Height: height-1 }.Save(bs.db)
+
+	// Flush
+	bs.db.SetSync(nil, nil)
+}
+
 func (bs *BlockStore) saveBlockPart(height int64, index int, part *types.Part) {
 	if height != bs.Height()+1 {
 		cmn.PanicSanity(fmt.Sprintf("BlockStore can only save contiguous blocks. Wanted %v, got %v", bs.Height()+1, height))
