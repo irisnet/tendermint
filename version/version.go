@@ -39,7 +39,7 @@ var (
 	P2PProtocol Protocol = 5
 
 	// BlockProtocol versions all block data structures and processing.
-	BlockProtocol Protocol = 8
+	BlockProtocol Protocol = 9
 )
 
 //------------------------------------------------------------------------
