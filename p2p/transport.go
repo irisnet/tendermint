@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"fmt"
+	"github.com/pkg/errors"
 	"net"
 	"time"
 
@@ -266,6 +267,23 @@ func (mt *MultiplexTransport) acceptPeers() {
 		//
 		// [0] https://en.wikipedia.org/wiki/Head-of-line_blocking
 		go func(c net.Conn) {
+			defer func() {
+				if r := recover(); r != nil {
+					err := ErrRejected{
+						conn:          c,
+						err:           errors.Errorf("recovered from panic: %v", r),
+						isAuthFailure: true,
+					}
+					select {
+					case mt.acceptc <- accept{err: err}:
+					case <-mt.closec:
+						// Give up if the transport was closed.
+						_ = c.Close()
+						return
+					}
+				}
+			}()
+
 			var (
 				nodeInfo   NodeInfo
 				secretConn *conn.SecretConnection
