@@ -26,8 +26,9 @@ const (
 //--------------------------------------------------------
 // types and functions for savings consensus messages
 
+// TimedWALMessage wraps WALMessage and adds Time for debugging purposes.
 type TimedWALMessage struct {
-	Time time.Time  `json:"time"` // for debugging purposes
+	Time time.Time  `json:"time"`
 	Msg  WALMessage `json:"msg"`
 }
 
@@ -52,20 +53,22 @@ func RegisterWALMessages(cdc *amino.Codec) {
 
 // WAL is an interface for any write-ahead logger.
 type WAL interface {
-	Write(WALMessage)
-	WriteSync(WALMessage)
+	Write(WALMessage) error
+	WriteSync(WALMessage) error
 	Group() *auto.Group
 	SearchForEndHeight(height int64, options *WALSearchOptions) (gr *auto.GroupReader, found bool, err error)
 
+	// service methods
 	Start() error
 	Stop() error
 	Wait()
 }
 
 // Write ahead logger writes msgs to disk before they are processed.
-// Can be used for crash-recovery and deterministic replay
-// TODO: currently the wal is overwritten during replay catchup
-//   give it a mode so it's either reading or appending - must read to end to start appending again
+// Can be used for crash-recovery and deterministic replay.
+// TODO: currently the wal is overwritten during replay catchup, give it a mode
+// so it's either reading or appending - must read to end to start appending
+// again.
 type baseWAL struct {
 	cmn.BaseService
 
@@ -130,29 +133,39 @@ func (wal *baseWAL) Wait() {
 // Write is called in newStep and for each receive on the
 // peerMsgQueue and the timeoutTicker.
 // NOTE: does not call fsync()
-func (wal *baseWAL) Write(msg WALMessage) {
+func (wal *baseWAL) Write(msg WALMessage) error {
 	if wal == nil {
-		return
+		return nil
 	}
 
-	// Write the wal message
 	if err := wal.enc.Encode(&TimedWALMessage{tmtime.Now(), msg}); err != nil {
-		panic(fmt.Sprintf("Error writing msg to consensus wal: %v \n\nMessage: %v", err, msg))
+		wal.Logger.Error("Error writing msg to consensus wal. WARNING: recover may not be possible for the current height",
+			"err", err, "msg", msg)
+		return err
 	}
+
+	return nil
 }
 
 // WriteSync is called when we receive a msg from ourselves
 // so that we write to disk before sending signed messages.
 // NOTE: calls fsync()
-func (wal *baseWAL) WriteSync(msg WALMessage) {
+func (wal *baseWAL) WriteSync(msg WALMessage) error {
 	if wal == nil {
-		return
+		return nil
 	}
 
-	wal.Write(msg)
-	if err := wal.group.Flush(); err != nil {
-		panic(fmt.Sprintf("Error flushing consensus wal buf to file. Error: %v \n", err))
+	if err := wal.Write(msg); err != nil {
+		return err
 	}
+
+	if err := wal.group.Flush(); err != nil {
+		wal.Logger.Error("WriteSync failed to flush consensus wal. WARNING: may result in creating alternative proposals / votes for the current height iff the node restarted",
+			"err", err)
+		return err
+	}
+
+	return nil
 }
 
 // WALSearchOptions are optional arguments to SearchForEndHeight.
@@ -229,12 +242,17 @@ func NewWALEncoder(wr io.Writer) *WALEncoder {
 	return &WALEncoder{wr}
 }
 
-// Encode writes the custom encoding of v to the stream.
+// Encode writes the custom encoding of v to the stream. It returns an error if
+// the amino-encoded size of v is greater than 1MB. Any error encountered
+// during the write is also returned.
 func (enc *WALEncoder) Encode(v *TimedWALMessage) error {
 	data := cdc.MustMarshalBinaryBare(v)
 
 	crc := crc32.Checksum(data, crc32c)
 	length := uint32(len(data))
+	if length > maxMsgSizeBytes {
+		return fmt.Errorf("msg is too big: %d bytes, max: %d bytes", length, maxMsgSizeBytes)
+	}
 	totalLength := 8 + int(length)
 
 	msg := make([]byte, totalLength)
@@ -243,7 +261,6 @@ func (enc *WALEncoder) Encode(v *TimedWALMessage) error {
 	copy(msg[8:], data)
 
 	_, err := enc.wr.Write(msg)
-
 	return err
 }
 
@@ -307,15 +324,15 @@ func (dec *WALDecoder) Decode() (*TimedWALMessage, error) {
 	}
 
 	data := make([]byte, length)
-	_, err = dec.rd.Read(data)
+	n, err := dec.rd.Read(data)
 	if err != nil {
-		return nil, DataCorruptionError{fmt.Errorf("failed to read data: %v", err)}
+		return nil, DataCorruptionError{fmt.Errorf("failed to read data: %v (read: %d, wanted: %d)", err, n, length)}
 	}
 
 	// check checksum before decoding data
 	actualCRC := crc32.Checksum(data, crc32c)
 	if actualCRC != crc {
-		return nil, DataCorruptionError{fmt.Errorf("checksums do not match: (read: %v, actual: %v)", crc, actualCRC)}
+		return nil, DataCorruptionError{fmt.Errorf("checksums do not match: read: %v, actual: %v", crc, actualCRC)}
 	}
 
 	var res = new(TimedWALMessage) // nolint: gosimple
@@ -329,9 +346,9 @@ func (dec *WALDecoder) Decode() (*TimedWALMessage, error) {
 
 type nilWAL struct{}
 
-func (nilWAL) Write(m WALMessage)     {}
-func (nilWAL) WriteSync(m WALMessage) {}
-func (nilWAL) Group() *auto.Group     { return nil }
+func (nilWAL) Write(m WALMessage)     error { return nil }
+func (nilWAL) WriteSync(m WALMessage) error { return nil }
+func (nilWAL) Group() *auto.Group           { return nil }
 func (nilWAL) SearchForEndHeight(height int64, options *WALSearchOptions) (gr *auto.GroupReader, found bool, err error) {
 	return nil, false, nil
 }
