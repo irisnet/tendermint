@@ -178,10 +178,10 @@ func newByteBufferWAL(logger log.Logger, enc *WALEncoder, nBlocks int64, signalS
 // Save writes message to the internal buffer except when heightToStop is
 // reached, in which case it will signal the caller via signalWhenStopsTo and
 // skip writing.
-func (w *byteBufferWAL) Write(m WALMessage) {
+func (w *byteBufferWAL) Write(m WALMessage) error {
 	if w.stopped {
 		w.logger.Debug("WAL already stopped. Not writing message", "msg", m)
-		return
+		return nil
 	}
 
 	if endMsg, ok := m.(EndHeightMessage); ok {
@@ -190,7 +190,7 @@ func (w *byteBufferWAL) Write(m WALMessage) {
 			w.logger.Debug("Stopping WAL at height", "height", endMsg.Height)
 			w.signalWhenStopsTo <- struct{}{}
 			w.stopped = true
-			return
+			return nil
 		}
 	}
 
@@ -199,10 +199,12 @@ func (w *byteBufferWAL) Write(m WALMessage) {
 	if err != nil {
 		panic(fmt.Sprintf("failed to encode the msg %v", m))
 	}
+
+	return nil
 }
 
-func (w *byteBufferWAL) WriteSync(m WALMessage) {
-	w.Write(m)
+func (w *byteBufferWAL) WriteSync(m WALMessage) error {
+	return w.Write(m)
 }
 
 func (w *byteBufferWAL) Group() *auto.Group {
