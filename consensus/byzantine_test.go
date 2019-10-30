@@ -242,6 +242,10 @@ type ByzantineReactor struct {
 	reactor *ConsensusReactor
 }
 
+func (br *ByzantineReactor) InitPeer(peer p2p.Peer) p2p.Peer {
+	return peer
+}
+
 func NewByzantineReactor(conR *ConsensusReactor) *ByzantineReactor {
 	return &ByzantineReactor{
 		Service: conR,
