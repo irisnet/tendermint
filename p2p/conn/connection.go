@@ -85,23 +85,26 @@ type MConnection struct {
 	errored       uint32
 	config        MConnConfig
 
-	// Closing quitSendRoutine will cause
-	// doneSendRoutine to close.
+	// Closing quitSendRoutine will cause the sendRoutine to eventually quit.
+	// doneSendRoutine is closed when the sendRoutine actually quits.
 	quitSendRoutine chan struct{}
 	doneSendRoutine chan struct{}
+
+	// Closing quitRecvRouting will cause the recvRouting to eventually quit.
+	quitRecvRoutine chan struct{}
 
 	// used to ensure FlushStop and OnStop
 	// are safe to call concurrently.
 	stopMtx sync.Mutex
 
 	flushTimer *cmn.ThrottleTimer // flush writes as necessary but throttled.
-	pingTimer  *cmn.RepeatTimer   // send pings periodically
+	pingTimer  *time.Ticker       // send pings periodically
 
 	// close conn if pong is not received in pongTimeout
 	pongTimer     *time.Timer
 	pongTimeoutCh chan bool // true - timeout, false - peer sent pong
 
-	chStatsTimer *cmn.RepeatTimer // update channel stats periodically
+	chStatsTimer *time.Ticker // update channel stats periodically
 
 	created time.Time // time of creation
 
@@ -200,29 +203,36 @@ func (c *MConnection) OnStart() error {
 	if err := c.BaseService.OnStart(); err != nil {
 		return err
 	}
+	c.flushTimer = cmn.NewThrottleTimer("flush", c.config.FlushThrottle)
+	c.pingTimer = time.NewTicker(c.config.PingInterval)
+	c.pongTimeoutCh = make(chan bool, 1)
+	c.chStatsTimer = time.NewTicker(updateStats)
 	c.quitSendRoutine = make(chan struct{})
 	c.doneSendRoutine = make(chan struct{})
-	c.flushTimer = cmn.NewThrottleTimer("flush", c.config.FlushThrottle)
-	c.pingTimer = cmn.NewRepeatTimer("ping", c.config.PingInterval)
-	c.pongTimeoutCh = make(chan bool, 1)
-	c.chStatsTimer = cmn.NewRepeatTimer("chStats", updateStats)
+	c.quitRecvRoutine = make(chan struct{})
 	go c.sendRoutine()
 	go c.recvRoutine()
 	return nil
 }
 
-// FlushStop replicates the logic of OnStop.
-// It additionally ensures that all successful
-// .Send() calls will get flushed before closing
-// the connection.
-func (c *MConnection) FlushStop() {
+// stopServices stops the BaseService and timers and closes the quitSendRoutine.
+// if the quitSendRoutine was already closed, it returns true, otherwise it returns false.
+// It uses the stopMtx to ensure only one of FlushStop and OnStop can do this at a time.
+func (c *MConnection) stopServices() (alreadyStopped bool) {
 	c.stopMtx.Lock()
 	defer c.stopMtx.Unlock()
 
 	select {
 	case <-c.quitSendRoutine:
-		// already quit via OnStop
-		return
+		// already quit
+		return true
+	default:
+	}
+
+	select {
+	case <-c.quitRecvRoutine:
+		// already quit
+		return true
 	default:
 	}
 
@@ -230,25 +240,40 @@ func (c *MConnection) FlushStop() {
 	c.flushTimer.Stop()
 	c.pingTimer.Stop()
 	c.chStatsTimer.Stop()
-	if c.quitSendRoutine != nil {
-		close(c.quitSendRoutine)
+
+	// inform the recvRouting that we are shutting down
+	close(c.quitRecvRoutine)
+	close(c.quitSendRoutine)
+	return false
+}
+
+// FlushStop replicates the logic of OnStop.
+// It additionally ensures that all successful
+// .Send() calls will get flushed before closing
+// the connection.
+func (c *MConnection) FlushStop() {
+	if c.stopServices() {
+		return
+	}
+
+	// this block is unique to FlushStop
+	{
 		// wait until the sendRoutine exits
 		// so we dont race on calling sendSomePacketMsgs
 		<-c.doneSendRoutine
+
+		// Send and flush all pending msgs.
+		// Since sendRoutine has exited, we can call this
+		// safely
+		eof := c.sendSomePacketMsgs()
+		for !eof {
+			eof = c.sendSomePacketMsgs()
+		}
+		c.flush()
+
+		// Now we can close the connection
 	}
 
-	// Send and flush all pending msgs.
-	// By now, IsRunning == false,
-	// so any concurrent attempts to send will fail.
-	// Since sendRoutine has exited, we can call this
-	// safely
-	eof := c.sendSomePacketMsgs()
-	for !eof {
-		eof = c.sendSomePacketMsgs()
-	}
-	c.flush()
-
-	// Now we can close the connection
 	c.conn.Close() // nolint: errcheck
 
 	// We can't close pong safely here because
@@ -261,21 +286,10 @@ func (c *MConnection) FlushStop() {
 
 // OnStop implements BaseService
 func (c *MConnection) OnStop() {
-	c.stopMtx.Lock()
-	defer c.stopMtx.Unlock()
-
-	select {
-	case <-c.quitSendRoutine:
-		// already quit via FlushStop
+	if c.stopServices() {
 		return
-	default:
 	}
 
-	c.BaseService.OnStop()
-	c.flushTimer.Stop()
-	c.pingTimer.Stop()
-	c.chStatsTimer.Stop()
-	close(c.quitSendRoutine)
 	c.conn.Close() // nolint: errcheck
 
 	// We can't close pong safely here because
@@ -398,11 +412,11 @@ FOR_LOOP:
 			// NOTE: flushTimer.Set() must be called every time
 			// something is written to .bufConnWriter.
 			c.flush()
-		case <-c.chStatsTimer.Chan():
+		case <-c.chStatsTimer.C:
 			for _, channel := range c.channels {
 				channel.updateStats()
 			}
-		case <-c.pingTimer.Chan():
+		case <-c.pingTimer.C:
 			c.Logger.Debug("Send Ping")
 			_n, err = cdc.MarshalBinaryLengthPrefixedWriter(c.bufConnWriter, PacketPing{})
 			if err != nil {
@@ -433,7 +447,6 @@ FOR_LOOP:
 			c.sendMonitor.Update(int(_n))
 			c.flush()
 		case <-c.quitSendRoutine:
-			close(c.doneSendRoutine)
 			break FOR_LOOP
 		case <-c.send:
 			// Send some PacketMsgs
@@ -459,6 +472,7 @@ FOR_LOOP:
 
 	// Cleanup
 	c.stopPongTimer()
+	close(c.doneSendRoutine)
 }
 
 // Returns true if messages from channels were exhausted.
@@ -547,9 +561,22 @@ FOR_LOOP:
 		var err error
 		_n, err = cdc.UnmarshalBinaryLengthPrefixedReader(c.bufConnReader, &packet, int64(c._maxPacketMsgSize))
 		c.recvMonitor.Update(int(_n))
+
 		if err != nil {
+			// stopServices was invoked and we are shutting down
+			// receiving is excpected to fail since we will close the connection
+			select {
+			case <-c.quitRecvRoutine:
+				break FOR_LOOP
+			default:
+			}
+
 			if c.IsRunning() {
-				c.Logger.Error("Connection failed @ recvRoutine (reading byte)", "conn", c, "err", err)
+				if err == io.EOF {
+					c.Logger.Info("Connection is closed @ recvRoutine (likely by the other side)", "conn", c)
+				} else {
+					c.Logger.Error("Connection failed @ recvRoutine (reading byte)", "conn", c, "err", err)
+				}
 				c.stopForError(err)
 			}
 			break FOR_LOOP
@@ -704,7 +731,7 @@ type Channel struct {
 func newChannel(conn *MConnection, desc ChannelDescriptor) *Channel {
 	desc = desc.FillDefaults()
 	if desc.Priority <= 0 {
-		cmn.PanicSanity("Channel default priority must be a positive integer")
+		panic("Channel default priority must be a positive integer")
 	}
 	return &Channel{
 		conn:                    conn,

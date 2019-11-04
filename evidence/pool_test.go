@@ -6,11 +6,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	dbm "github.com/tendermint/tendermint/libs/db"
 	sm "github.com/tendermint/tendermint/state"
 	"github.com/tendermint/tendermint/types"
 	tmtime "github.com/tendermint/tendermint/types/time"
+	dbm "github.com/tendermint/tm-db"
 )
 
 var mockState = sm.State{}

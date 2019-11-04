@@ -20,7 +20,12 @@ type TxIndexer interface {
 	Get(hash []byte) (*types.TxResult, error)
 
 	// Search allows you to query for transactions.
-	Search(q *query.Query) ([][]byte, error)
+	Search(q *query.Query) ([]TxHash, error)
+}
+
+type TxHash struct {
+	Index string
+	Hash  []byte
 }
 
 //----------------------------------------------------

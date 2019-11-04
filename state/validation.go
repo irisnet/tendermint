@@ -2,14 +2,14 @@ package state
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"encoding/hex"
 	"strconv"
 
 	"github.com/tendermint/tendermint/crypto"
-	dbm "github.com/tendermint/tendermint/libs/db"
 	"github.com/tendermint/tendermint/types"
+	dbm "github.com/tendermint/tm-db"
 )
 
 //-----------------------------------------------------

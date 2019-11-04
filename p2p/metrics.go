@@ -7,7 +7,11 @@ import (
 	stdprometheus "github.com/prometheus/client_golang/prometheus"
 )
 
-const MetricsSubsystem = "p2p"
+const (
+	// MetricsSubsystem is a subsystem shared by all metrics exposed by this
+	// package.
+	MetricsSubsystem = "p2p"
+)
 
 // Metrics contains metrics exposed by this package.
 type Metrics struct {
@@ -24,8 +28,10 @@ type Metrics struct {
 }
 
 // PrometheusMetrics returns Metrics build using Prometheus client library.
+// Optionally, labels can be provided along with their values ("foo",
+// "fooValue").
 func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
-	var labels []string
+	labels := []string{}
 	for i := 0; i < len(labelsAndValues); i += 2 {
 		labels = append(labels, labelsAndValues[i])
 	}
@@ -41,13 +47,13 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Subsystem: MetricsSubsystem,
 			Name:      "peer_receive_bytes_total",
 			Help:      "Number of bytes received from a given peer.",
-		}, append(labels, "peer_id")).With(labelsAndValues...),
+		}, append(labels, "peer_id", "chID")).With(labelsAndValues...),
 		PeerSendBytesTotal: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
 			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "peer_send_bytes_total",
 			Help:      "Number of bytes sent to a given peer.",
-		}, append(labels, "peer_id")).With(labelsAndValues...),
+		}, append(labels, "peer_id", "chID")).With(labelsAndValues...),
 		PeerPendingSendBytes: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
 			Namespace: namespace,
 			Subsystem: MetricsSubsystem,

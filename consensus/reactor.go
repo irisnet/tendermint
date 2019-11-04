@@ -116,8 +116,13 @@ func (conR *ConsensusReactor) SwitchToConsensus(state sm.State, blocksSynced int
 	}
 	err := conR.conS.Start()
 	if err != nil {
-		conR.Logger.Error("Error starting conS", "err", err)
-		return
+		panic(fmt.Sprintf(`Failed to start consensus state: %v
+
+conS:
+%+v
+
+conR:
+%+v`, err, conR.conS, conR))
 	}
 }
 
@@ -155,15 +160,24 @@ func (conR *ConsensusReactor) GetChannels() []*p2p.ChannelDescriptor {
 	}
 }
 
-// AddPeer implements Reactor
+// InitPeer implements Reactor by creating a state for the peer.
+func (conR *ConsensusReactor) InitPeer(peer p2p.Peer) p2p.Peer {
+	peerState := NewPeerState(peer).SetLogger(conR.Logger)
+	peer.Set(types.PeerStateKey, peerState)
+	return peer
+}
+
+// AddPeer implements Reactor by spawning multiple gossiping goroutines for the
+// peer.
 func (conR *ConsensusReactor) AddPeer(peer p2p.Peer) {
 	if !conR.IsRunning() {
 		return
 	}
 
-	// Create peerState for peer
-	peerState := NewPeerState(peer).SetLogger(conR.Logger)
-	peer.Set(types.PeerStateKey, peerState)
+	peerState, ok := peer.Get(types.PeerStateKey).(*PeerState)
+	if !ok {
+		panic(fmt.Sprintf("peer %v has no state", peer))
+	}
 
 	// Begin routines for this peer.
 	go conR.gossipDataRoutine(peer, peerState)
@@ -177,7 +191,7 @@ func (conR *ConsensusReactor) AddPeer(peer p2p.Peer) {
 	}
 }
 
-// RemovePeer implements Reactor
+// RemovePeer is a noop.
 func (conR *ConsensusReactor) RemovePeer(peer p2p.Peer, reason interface{}) {
 	if !conR.IsRunning() {
 		return
@@ -438,9 +452,9 @@ func (conR *ConsensusReactor) broadcastHasVoteMessage(vote *types.Vote) {
 
 func makeRoundStepMessage(rs *cstypes.RoundState) (nrsMsg *NewRoundStepMessage) {
 	nrsMsg = &NewRoundStepMessage{
-		Height: rs.Height,
-		Round:  rs.Round,
-		Step:   rs.Step,
+		Height:                rs.Height,
+		Round:                 rs.Round,
+		Step:                  rs.Step,
 		SecondsSinceStartTime: int(time.Since(rs.StartTime).Seconds()),
 		LastCommitRound:       rs.LastCommit.Round(),
 	}

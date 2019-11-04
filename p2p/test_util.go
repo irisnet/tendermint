@@ -27,7 +27,7 @@ func (ni mockNodeInfo) NetAddress() (*NetAddress, error)    { return ni.addr, ni
 func (ni mockNodeInfo) Validate() error                     { return nil }
 func (ni mockNodeInfo) CompatibleWith(other NodeInfo) error { return nil }
 
-func AddPeerToSwitch(sw *Switch, peer Peer) {
+func AddPeerToSwitchPeerSet(sw *Switch, peer Peer) {
 	sw.peers.Add(peer)
 }
 
@@ -248,35 +248,25 @@ func testNodeInfo(id ID, name string) NodeInfo {
 }
 
 func testNodeInfoWithNetwork(id ID, name, network string) NodeInfo {
-	port, err := getFreePort()
-	if err != nil {
-		panic(err)
-	}
 	return DefaultNodeInfo{
 		ProtocolVersion: defaultProtocolVersion,
 		ID_:             id,
-		ListenAddr:      fmt.Sprintf("127.0.0.1:%d", port),
+		ListenAddr:      fmt.Sprintf("127.0.0.1:%d", getFreePort()),
 		Network:         network,
 		Version:         "1.2.3-rc0-deadbeef",
 		Channels:        []byte{testCh},
 		Moniker:         name,
 		Other: DefaultNodeInfoOther{
 			TxIndex:    "on",
-			RPCAddress: fmt.Sprintf("127.0.0.1:%d", port),
+			RPCAddress: fmt.Sprintf("127.0.0.1:%d", getFreePort()),
 		},
 	}
 }
 
-func getFreePort() (int, error) {
-	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+func getFreePort() int {
+	port, err := cmn.GetFreePort()
 	if err != nil {
-		return 0, err
+		panic(err)
 	}
-
-	l, err := net.ListenTCP("tcp", addr)
-	if err != nil {
-		return 0, err
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port, nil
+	return port
 }

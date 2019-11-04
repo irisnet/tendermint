@@ -9,9 +9,9 @@ import (
 
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	cmn "github.com/tendermint/tendermint/libs/common"
-	dbm "github.com/tendermint/tendermint/libs/db"
 	"github.com/tendermint/tendermint/types"
 	tmtime "github.com/tendermint/tendermint/types/time"
+	dbm "github.com/tendermint/tm-db"
 )
 
 func TestTxFilter(t *testing.T) {

@@ -7,18 +7,17 @@ import (
 	"time"
 
 	abci "github.com/tendermint/tendermint/abci/types"
-	dbm "github.com/tendermint/tendermint/libs/db"
 	"github.com/tendermint/tendermint/libs/fail"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/proxy"
 	"github.com/tendermint/tendermint/types"
+	dbm "github.com/tendermint/tm-db"
 )
 
 const (
-	HaltTagKey   = "halt_blockchain"
-	HaltTagValue = "true"
+	HaltTagKey           = "halt_blockchain"
+	HaltTagValue         = "true"
 	UpgradeFailureTagKey = "upgrade_failure"
-
 )
 
 //-----------------------------------------------------------------------------
@@ -285,8 +284,7 @@ func execBlockOnProxyApp(
 		return nil, err
 	}
 
-
-	if tag, ok := abci.GetTagByKey(abciResponses.EndBlock.Tags, UpgradeFailureTagKey); ok{
+	if tag, ok := abci.GetTagByKey(abciResponses.EndBlock.Tags, UpgradeFailureTagKey); ok {
 		return nil, fmt.Errorf(string(tag.Value))
 	}
 
@@ -299,9 +297,9 @@ func getBeginBlockValidatorInfo(block *types.Block, lastValSet *types.ValidatorS
 
 	state := LoadState(stateDB)
 	// For replaying blocks, load history validator set
-	if block.Height > 1 && block.Height != state.LastBlockHeight + 1 {
+	if block.Height > 1 && block.Height != state.LastBlockHeight+1 {
 		var err error
-		lastValSet, err = LoadValidators(stateDB, block.Height - 1)
+		lastValSet, err = LoadValidators(stateDB, block.Height-1)
 		if err != nil {
 			panic(fmt.Sprintf("failed to load validatorset at heith %d", state.LastBlockHeight))
 		}

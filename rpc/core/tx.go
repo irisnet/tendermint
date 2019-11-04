@@ -3,13 +3,12 @@ package core
 import (
 	"fmt"
 
+	"github.com/pkg/errors"
 	cmn "github.com/tendermint/tendermint/libs/common"
-
 	tmquery "github.com/tendermint/tendermint/libs/pubsub/query"
 	ctypes "github.com/tendermint/tendermint/rpc/core/types"
 	"github.com/tendermint/tendermint/state/txindex/null"
 	"github.com/tendermint/tendermint/types"
-	"github.com/pkg/errors"
 )
 
 // Tx allows you to query the transaction results. `nil` could mean the
@@ -201,14 +200,17 @@ func TxSearch(query string, prove bool, page, perPage int) (*ctypes.ResultTxSear
 
 	totalCount := len(hashes)
 	perPage = validatePerPage(perPage)
-	page = validatePage(page, perPage, totalCount)
+	page, err = validatePage(page, perPage, totalCount)
+	if err != nil {
+		return nil, err
+	}
 	skipCount := validateSkipCount(page, perPage)
 
 	apiResults := make([]*ctypes.ResultTx, cmn.MinInt(perPage, totalCount-skipCount))
 	var proof types.TxProof
 	for i := 0; i < len(apiResults); i++ {
 		h := hashes[skipCount+i]
-		r, err := txIndexer.Get(h)
+		r, err := txIndexer.Get(h.Hash)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get Tx{%X}", h)
 		}

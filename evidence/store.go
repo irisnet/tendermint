@@ -3,8 +3,8 @@ package evidence
 import (
 	"fmt"
 
-	dbm "github.com/tendermint/tendermint/libs/db"
 	"github.com/tendermint/tendermint/types"
+	dbm "github.com/tendermint/tm-db"
 )
 
 /*
@@ -104,7 +104,7 @@ func (store *EvidenceStore) listEvidence(prefixKey string, maxBytes int64) (evid
 		val := iter.Value()
 		count++
 		// In block validation, the evidence total size is calculated by (evidence quantity) * (maximum evidence size)
-		if maxBytes > 0 && count * int64(types.MaxEvidenceBytes) > maxBytes {
+		if maxBytes > 0 && count*int64(types.MaxEvidenceBytes) > maxBytes {
 			return evidence
 		}
 		// types.MaxEvidenceBytes must be greater than len(val)

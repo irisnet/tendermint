@@ -66,8 +66,7 @@ type AddrBook interface {
 	// Send a selection of addresses with bias
 	GetSelectionWithBias(biasTowardsNewAddrs int) []*p2p.NetAddress
 
-	// TODO: remove
-	ListOfKnownAddresses() []*knownAddress
+	Size() int
 
 	// Persist to disk
 	Save()
@@ -179,11 +178,11 @@ func (a *addrBook) OurAddress(addr *p2p.NetAddress) bool {
 	return ok
 }
 
-func (a *addrBook) AddPrivateIDs(IDs []string) {
+func (a *addrBook) AddPrivateIDs(ids []string) {
 	a.mtx.Lock()
 	defer a.mtx.Unlock()
 
-	for _, id := range IDs {
+	for _, id := range ids {
 		a.privateIDs[p2p.ID(id)] = struct{}{}
 	}
 }
@@ -254,7 +253,7 @@ func (a *addrBook) PickAddress(biasTowardsNewAddrs int) *p2p.NetAddress {
 	bookSize := a.size()
 	if bookSize <= 0 {
 		if bookSize < 0 {
-			a.Logger.Error("Addrbook size less than 0", "nNew", a.nNew, "nOld", a.nOld)
+			panic(fmt.Sprintf("Addrbook size %d (new: %d + old: %d) is less than 0", a.nNew+a.nOld, a.nNew, a.nOld))
 		}
 		return nil
 	}
@@ -339,7 +338,7 @@ func (a *addrBook) GetSelection() []*p2p.NetAddress {
 	bookSize := a.size()
 	if bookSize <= 0 {
 		if bookSize < 0 {
-			a.Logger.Error("Addrbook size less than 0", "nNew", a.nNew, "nOld", a.nOld)
+			panic(fmt.Sprintf("Addrbook size %d (new: %d + old: %d) is less than 0", a.nNew+a.nOld, a.nNew, a.nOld))
 		}
 		return nil
 	}
@@ -389,7 +388,7 @@ func (a *addrBook) GetSelectionWithBias(biasTowardsNewAddrs int) []*p2p.NetAddre
 	bookSize := a.size()
 	if bookSize <= 0 {
 		if bookSize < 0 {
-			a.Logger.Error("Addrbook size less than 0", "nNew", a.nNew, "nOld", a.nOld)
+			panic(fmt.Sprintf("Addrbook size %d (new: %d + old: %d) is less than 0", a.nNew+a.nOld, a.nNew, a.nOld))
 		}
 		return nil
 	}
@@ -412,18 +411,6 @@ func (a *addrBook) GetSelectionWithBias(biasTowardsNewAddrs int) []*p2p.NetAddre
 	selection := a.randomPickAddresses(bucketTypeNew, numRequiredNewAdd)
 	selection = append(selection, a.randomPickAddresses(bucketTypeOld, numAddresses-len(selection))...)
 	return selection
-}
-
-// ListOfKnownAddresses returns the new and old addresses.
-func (a *addrBook) ListOfKnownAddresses() []*knownAddress {
-	a.mtx.Lock()
-	defer a.mtx.Unlock()
-
-	addrs := []*knownAddress{}
-	for _, addr := range a.addrLookup {
-		addrs = append(addrs, addr.copy())
-	}
-	return addrs
 }
 
 //------------------------------------------------
@@ -473,8 +460,7 @@ func (a *addrBook) getBucket(bucketType byte, bucketIdx int) map[string]*knownAd
 	case bucketTypeOld:
 		return a.bucketsOld[bucketIdx]
 	default:
-		cmn.PanicSanity("Should not happen")
-		return nil
+		panic("Invalid bucket type")
 	}
 }
 
@@ -600,21 +586,8 @@ func (a *addrBook) addAddress(addr, src *p2p.NetAddress) error {
 		return ErrAddrBookNilAddr{addr, src}
 	}
 
-	if a.routabilityStrict && !addr.Routable() {
-		return ErrAddrBookNonRoutable{addr}
-	}
-
-	if !addr.Valid() {
-		return ErrAddrBookInvalidAddr{addr}
-	}
-
-	if !addr.HasID() {
-		return ErrAddrBookInvalidAddrNoID{addr}
-	}
-
-	// TODO: we should track ourAddrs by ID and by IP:PORT and refuse both.
-	if _, ok := a.ourAddrs[addr.String()]; ok {
-		return ErrAddrBookSelf{addr}
+	if err := addr.Valid(); err != nil {
+		return ErrAddrBookInvalidAddr{Addr: addr, AddrErr: err}
 	}
 
 	if _, ok := a.privateIDs[addr.ID]; ok {
@@ -623,6 +596,15 @@ func (a *addrBook) addAddress(addr, src *p2p.NetAddress) error {
 
 	if _, ok := a.privateIDs[src.ID]; ok {
 		return ErrAddrBookPrivateSrc{src}
+	}
+
+	// TODO: we should track ourAddrs by ID and by IP:PORT and refuse both.
+	if _, ok := a.ourAddrs[addr.String()]; ok {
+		return ErrAddrBookSelf{addr}
+	}
+
+	if a.routabilityStrict && !addr.Routable() {
+		return ErrAddrBookNonRoutable{addr}
 	}
 
 	ka := a.addrLookup[addr.ID]
@@ -661,7 +643,7 @@ func (a *addrBook) randomPickAddresses(bucketType byte, num int) []*p2p.NetAddre
 	}
 	total := 0
 	for _, bucket := range buckets {
-		total = total + len(bucket)
+		total += len(bucket)
 	}
 	addresses := make([]*knownAddress, 0, total)
 	for _, bucket := range buckets {

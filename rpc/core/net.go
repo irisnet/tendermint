@@ -71,10 +71,8 @@ func UnsafeDialSeeds(seeds []string) (*ctypes.ResultDialSeeds, error) {
 	if len(seeds) == 0 {
 		return &ctypes.ResultDialSeeds{}, errors.New("No seeds provided")
 	}
-	// starts go routines to dial each peer after random delays
-	logger.Info("DialSeeds", "addrBook", addrBook, "seeds", seeds)
-	err := p2pPeers.DialPeersAsync(addrBook, seeds, false)
-	if err != nil {
+	logger.Info("DialSeeds", "seeds", seeds)
+	if err := p2pPeers.DialPeersAsync(seeds); err != nil {
 		return &ctypes.ResultDialSeeds{}, err
 	}
 	return &ctypes.ResultDialSeeds{"Dialing seeds in progress. See /net_info for details"}, nil
@@ -84,12 +82,12 @@ func UnsafeDialPeers(peers []string, persistent bool) (*ctypes.ResultDialPeers, 
 	if len(peers) == 0 {
 		return &ctypes.ResultDialPeers{}, errors.New("No peers provided")
 	}
-	// starts go routines to dial each peer after random delays
-	logger.Info("DialPeers", "addrBook", addrBook, "peers", peers, "persistent", persistent)
-	err := p2pPeers.DialPeersAsync(addrBook, peers, persistent)
-	if err != nil {
+	logger.Info("DialPeers", "peers", peers, "persistent", persistent)
+	if err := p2pPeers.AddPersistentPeers(peers); err != nil {
 		return &ctypes.ResultDialPeers{}, err
 	}
+	// parsing errors are handled above by AddPersistentPeers
+	_ = p2pPeers.DialPeersAsync(peers)
 	return &ctypes.ResultDialPeers{"Dialing peers in progress. See /net_info for details"}, nil
 }
 

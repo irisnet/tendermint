@@ -38,11 +38,15 @@ type accept struct {
 // events.
 // TODO(xla): Refactor out with more static Reactor setup and PeerBehaviour.
 type peerConfig struct {
-	chDescs              []*conn.ChannelDescriptor
-	onPeerError          func(Peer, interface{})
-	outbound, persistent bool
-	reactorsByCh         map[byte]Reactor
-	metrics              *Metrics
+	chDescs     []*conn.ChannelDescriptor
+	onPeerError func(Peer, interface{})
+	outbound    bool
+	// isPersistent allows you to set a function, which, given socket address
+	// (for outbound peers) OR self-reported address (for inbound peers), tells
+	// if the peer is persistent or not.
+	isPersistent func(*NetAddress) bool
+	reactorsByCh map[byte]Reactor
+	metrics      *Metrics
 }
 
 // Transport emits and connects to Peers. The implementation of Peer is left to
@@ -205,7 +209,7 @@ func (mt *MultiplexTransport) Dial(
 		return nil, err
 	}
 
-	secretConn, nodeInfo, err := mt.upgrade(c)
+	secretConn, nodeInfo, err := mt.upgrade(c, &addr)
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +296,7 @@ func (mt *MultiplexTransport) acceptPeers() {
 
 			err := mt.filterConn(c)
 			if err == nil {
-				secretConn, nodeInfo, err = mt.upgrade(c)
+				secretConn, nodeInfo, err = mt.upgrade(c, nil)
 				if err == nil {
 					addr := c.RemoteAddr()
 					id := PubKeyToID(secretConn.RemotePubKey())
@@ -314,9 +318,9 @@ func (mt *MultiplexTransport) acceptPeers() {
 
 // Cleanup removes the given address from the connections set and
 // closes the connection.
-func (mt *MultiplexTransport) Cleanup(peer Peer) {
-	mt.conns.RemoveAddr(peer.RemoteAddr())
-	_ = peer.CloseConn()
+func (mt *MultiplexTransport) Cleanup(p Peer) {
+	mt.conns.RemoveAddr(p.RemoteAddr())
+	_ = p.CloseConn()
 }
 
 func (mt *MultiplexTransport) cleanup(c net.Conn) error {
@@ -370,6 +374,7 @@ func (mt *MultiplexTransport) filterConn(c net.Conn) (err error) {
 
 func (mt *MultiplexTransport) upgrade(
 	c net.Conn,
+	dialedAddr *NetAddress,
 ) (secretConn *conn.SecretConnection, nodeInfo NodeInfo, err error) {
 	defer func() {
 		if err != nil {
@@ -381,8 +386,25 @@ func (mt *MultiplexTransport) upgrade(
 	if err != nil {
 		return nil, nil, ErrRejected{
 			conn:          c,
-			err:           fmt.Errorf("secrect conn failed: %v", err),
+			err:           fmt.Errorf("secret conn failed: %v", err),
 			isAuthFailure: true,
+		}
+	}
+
+	// For outgoing conns, ensure connection key matches dialed key.
+	connID := PubKeyToID(secretConn.RemotePubKey())
+	if dialedAddr != nil {
+		if dialedID := dialedAddr.ID; connID != dialedID {
+			return nil, nil, ErrRejected{
+				conn: c,
+				id:   connID,
+				err: fmt.Errorf(
+					"conn.ID (%v) dialed ID (%v) mismatch",
+					connID,
+					dialedID,
+				),
+				isAuthFailure: true,
+			}
 		}
 	}
 
@@ -404,12 +426,12 @@ func (mt *MultiplexTransport) upgrade(
 	}
 
 	// Ensure connection key matches self reported key.
-	if connID := PubKeyToID(secretConn.RemotePubKey()); connID != nodeInfo.ID() {
+	if connID != nodeInfo.ID() {
 		return nil, nil, ErrRejected{
 			conn: c,
 			id:   connID,
 			err: fmt.Errorf(
-				"conn.ID (%v) NodeInfo.ID (%v) missmatch",
+				"conn.ID (%v) NodeInfo.ID (%v) mismatch",
 				connID,
 				nodeInfo.ID(),
 			),
@@ -446,9 +468,21 @@ func (mt *MultiplexTransport) wrapPeer(
 	socketAddr *NetAddress,
 ) Peer {
 
+	persistent := false
+	if cfg.isPersistent != nil {
+		if cfg.outbound {
+			persistent = cfg.isPersistent(socketAddr)
+		} else {
+			selfReportedAddr, err := ni.NetAddress()
+			if err == nil {
+				persistent = cfg.isPersistent(selfReportedAddr)
+			}
+		}
+	}
+
 	peerConn := newPeerConn(
 		cfg.outbound,
-		cfg.persistent,
+		persistent,
 		c,
 		socketAddr,
 	)

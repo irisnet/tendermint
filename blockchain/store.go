@@ -5,9 +5,8 @@ import (
 	"sync"
 
 	cmn "github.com/tendermint/tendermint/libs/common"
-	dbm "github.com/tendermint/tendermint/libs/db"
-
 	"github.com/tendermint/tendermint/types"
+	dbm "github.com/tendermint/tm-db"
 )
 
 /*
@@ -189,9 +188,9 @@ func (bs *BlockStore) SaveBlock(block *types.Block, blockParts *types.PartSet, s
 func (bs *BlockStore) RetreatLastBlock() {
 	height := bs.height
 	bs.db.Delete(calcBlockMetaKey(height))
-	bs.db.Delete(calcBlockCommitKey(height-1))
+	bs.db.Delete(calcBlockCommitKey(height - 1))
 	bs.db.Delete(calcSeenCommitKey(height))
-	BlockStoreStateJSON{Height: height-1 }.Save(bs.db)
+	BlockStoreStateJSON{Height: height - 1}.Save(bs.db)
 	// Done!
 	bs.mtx.Lock()
 	bs.height = height
