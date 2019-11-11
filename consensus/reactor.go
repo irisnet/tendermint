@@ -505,8 +505,9 @@ OUTER_LOOP:
 			if prs.ProposalBlockParts == nil {
 				blockMeta := conR.conS.blockStore.LoadBlockMeta(prs.Height)
 				if blockMeta == nil {
-					cmn.PanicCrisis(fmt.Sprintf("Failed to load block %d when blockStore is at %d",
-						prs.Height, conR.conS.blockStore.Height()))
+					//cmn.PanicCrisis(fmt.Sprintf("Failed to load block %d when blockStore is at %d",
+					//	prs.Height, conR.conS.blockStore.Height()))
+					continue OUTER_LOOP
 				}
 				ps.InitProposalBlockParts(blockMeta.BlockID.PartsHeader)
 				// continue the loop since prs is a copy and not effected by this initialization
