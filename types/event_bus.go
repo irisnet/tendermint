@@ -73,13 +73,27 @@ func (b *EventBus) Publish(eventType string, eventData TMEventData) error {
 
 func (b *EventBus) validateAndStringifyTags(tags []cmn.KVPair, logger log.Logger) map[string]string {
 	result := make(map[string]string)
+	compositeTagMap := make(map[string][]byte)
 	for _, tag := range tags {
 		// basic validation
 		if len(tag.Key) == 0 {
 			logger.Debug("Got tag with an empty key (skipping)", "tag", tag)
 			continue
 		}
-		result[string(tag.Key)] = string(tag.Value)
+
+		// skip duplicate tag keys and tag values
+		compositeTag := fmt.Sprintf("%s.%s", tag.Key, string(tag.Value))
+		if _, ok := compositeTagMap[compositeTag]; ok {
+			continue
+		}
+
+		compositeTagMap[compositeTag] = nil
+		// append tag.Value if contain the duplicate tag.Key
+		if _, ok := result[string(tag.Key)]; ok {
+			result[string(tag.Key)] = result[string(tag.Key)] + "," + string(tag.Value)
+		} else {
+			result[string(tag.Key)] = string(tag.Value)
+		}
 	}
 	return result
 }
