@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/pkg/errors"
+	"golang.org/x/net/netutil"
 	"net"
 	"time"
 
@@ -121,11 +122,18 @@ func MultiplexTransportResolver(resolver IPResolver) MultiplexTransportOption {
 	return func(mt *MultiplexTransport) { mt.resolver = resolver }
 }
 
+// MultiplexTransportMaxIncomingConnections sets the maximum number of
+// simultaneous connections (incoming). Default: 0 (unlimited)
+func MultiplexTransportMaxIncomingConnections(n int) MultiplexTransportOption {
+	return func(mt *MultiplexTransport) { mt.maxIncomingConnections = n }
+}
+
 // MultiplexTransport accepts and dials tcp connections and upgrades them to
 // multiplexed peers.
 type MultiplexTransport struct {
-	netAddr  NetAddress
-	listener net.Listener
+	netAddr                NetAddress
+	listener               net.Listener
+	maxIncomingConnections int // see MaxIncomingConnections
 
 	acceptc chan accept
 	closec  chan struct{}
@@ -237,6 +245,10 @@ func (mt *MultiplexTransport) Listen(addr NetAddress) error {
 	ln, err := net.Listen("tcp", addr.DialString())
 	if err != nil {
 		return err
+	}
+
+	if mt.maxIncomingConnections > 0 {
+		ln = netutil.LimitListener(ln, mt.maxIncomingConnections)
 	}
 
 	mt.netAddr = addr
