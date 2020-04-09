@@ -48,7 +48,7 @@ type mempoolIDs struct {
 	activeIDs map[uint16]struct{} // used to check if a given peerID key is used, the value doesn't matter
 }
 
-// Reserve searches for the next unused ID and assignes it to the
+// Reserve searches for the next unused ID and assigns it to the
 // peer.
 func (ids *mempoolIDs) ReserveForPeer(peer p2p.Peer) {
 	ids.mtx.Lock()
@@ -111,8 +111,14 @@ func NewMempoolReactor(config *cfg.MempoolConfig, mempool *Mempool) *MempoolReac
 		Mempool: mempool,
 		ids:     newMempoolIDs(),
 	}
-	memR.BaseReactor = *p2p.NewBaseReactor("MempoolReactor", memR)
+	memR.BaseReactor = *p2p.NewBaseReactor("Mempool", memR)
 	return memR
+}
+
+// InitPeer implements Reactor by creating a state for the peer.
+func (memR *MempoolReactor) InitPeer(peer p2p.Peer) p2p.Peer {
+	memR.ids.ReserveForPeer(peer)
+	return peer
 }
 
 // SetLogger sets the Logger on the reactor and the underlying Mempool.
@@ -143,7 +149,6 @@ func (memR *MempoolReactor) GetChannels() []*p2p.ChannelDescriptor {
 // AddPeer implements Reactor.
 // It starts a broadcast routine ensuring all txs are forwarded to the given peer.
 func (memR *MempoolReactor) AddPeer(peer p2p.Peer) {
-	memR.ids.ReserveForPeer(peer)
 	go memR.broadcastTxRoutine(peer)
 }
 

@@ -437,6 +437,10 @@ func NewNode(config *cfg.Config,
 
 	p2p.MultiplexTransportConnFilters(connFilters...)(transport)
 
+	// Limit the number of incoming connections.
+	max := config.P2P.MaxNumInboundPeers
+	p2p.MultiplexTransportMaxIncomingConnections(max)(transport)
+
 	// Setup Switch.
 	sw := p2p.NewSwitch(
 		config.P2P,
